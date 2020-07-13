@@ -27,6 +27,7 @@ const (
 )
 {{/isEnum}}
 {{^isEnum}}
+{{^discriminator}}
 // {{classname}}{{#description}} {{{description}}}{{/description}}{{^description}} struct for {{{classname}}}{{/description}}
 type {{classname}} struct {
 {{#allVars}}
@@ -38,6 +39,58 @@ type {{classname}} struct {
 	{{name}} {{#isNullable}}*{{/isNullable}}{{{dataType}}} `json:"{{baseName}}{{^required}},omitempty{{/required}}"{{#withXml}} xml:"{{baseName}}{{#isXmlAttribute}},attr{{/isXmlAttribute}}"{{/withXml}}{{#vendorExtensions.x-go-custom-tag}} {{{.}}}{{/vendorExtensions.x-go-custom-tag}}`
 {{/allVars}}
 }
+{{/discriminator}}
+{{#discriminator}}
+type {{classname}} interface {
+	oaIs{{classname}}()
+}
+type {{classname}}Holder struct {
+	Holder {{classname}}
+}
+func (h *{{classname}}Holder) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h.Holder)
+}
+
+func (h *{{classname}}Holder) UnmarshalJSON(b []byte) error {
+	var objMap map[string]*json.RawMessage
+	err := json.Unmarshal(b, &objMap)
+	if err != nil {
+		return err
+	}
+
+	// We detect the correct struct type by looking at the {{discriminatorName}} field.
+	jsonType, ok := objMap["{{discriminatorName}}"]
+	if !ok {
+		return fmt.Errorf("no Type specification")
+	}
+	var goType string
+	err = json.Unmarshal(*jsonType, &goType)
+	if err != nil {
+		return fmt.Errorf("error getting type: %s", err.Error())
+	}
+
+	switch goType {
+	{{#discriminator.mappedModels}}
+	case "{{mappingName}}":
+		var elem {{modelName}}
+		err = json.Unmarshal(b, &elem)
+		if err != nil {
+			return err
+		}
+		h.Holder = &elem
+	{{/discriminator.mappedModels}}
+	default:
+		return fmt.Errorf("unknown {{classname}} type %s", goType)
+	}
+
+	return nil
+}
+// TODO/FIXME: replace instances of abstract models with their respective holder classes
+{{/discriminator}}
+{{#parent}}
+// oaIs{{parent}} adds a function so that the model implements the parent interface.
+func (i *{{classname}}) oaIs{{parent}}(){}
+{{/parent}}
 {{/isEnum}}
 {{/model}}
 {{/models}}
